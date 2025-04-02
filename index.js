@@ -29,6 +29,7 @@ const languages = {
     ru: 'Русский',
     en: 'English'
 };
+
 // Тексты на разных языках
 const messages = {
     sr: {
@@ -141,11 +142,15 @@ const getMessage = (chatId, key, params = {}) => {
     return message;
 };
 
-// Функция для логирования
+// Функция для логирования с обработкой ошибок
 const logMessage = (message) => {
-    const timestamp = new Date().toISOString();
-    const logEntry = `[${timestamp}] ${message}\n`;
-    fs.appendFileSync('bot.log', logEntry);
+    try {
+        const timestamp = new Date().toISOString();
+        const logEntry = `[${timestamp}] ${message}\n`;
+        fs.appendFileSync('bot.log', logEntry);
+    } catch (error) {
+        console.error(`Не удалось записать в bot.log: ${error.message}`);
+    }
 };
 
 // Импортируем обработчики
@@ -158,9 +163,10 @@ const promoHandler = require('./handlers/promo');
 // Обработчик входящих сообщений
 bot.on('message', (msg) => {
     const chatId = msg.chat.id;
-    const text = msg.text.toLowerCase().trim();
+    const text = msg.text.trim(); // Убираем пробелы, сохраняем регистр
 
     // Логируем входящее сообщение
+    console.log(`User ${chatId} sent: ${msg.text}`);
     logMessage(`User ${chatId} sent: ${msg.text}`);
 
     // Инициализируем состояние пользователя, если его нет
@@ -168,8 +174,33 @@ bot.on('message', (msg) => {
         userState[chatId] = { step: 'idle' };
     }
 
+    // Отладочный лог: текущий язык пользователя
+    console.log(`Current userLanguages[${chatId}]: ${userLanguages[chatId]}`);
+
+    // Отладочный лог: проверяем значения languages
+    console.log(`Available languages: ${JSON.stringify(languages)}`);
+
+    // Обработка выбора языка
+    if (Object.values(languages).includes(text)) {
+        console.log(`Language selection detected: ${text}`);
+        const selectedLang = Object.keys(languages).find(key => languages[key] === text);
+        if (selectedLang) {
+            userLanguages[chatId] = selectedLang;
+            bot.sendMessage(chatId, getMessage(chatId, 'languageChanged', { language: languages[selectedLang] }));
+            startHandler(bot, chatId, getMessage);
+            logMessage(`User ${chatId} changed language to ${selectedLang}`);
+            console.log(`User ${chatId} changed language to ${selectedLang}`);
+            return;
+        } else {
+            console.log(`Error: Could not find language key for ${text}`);
+            logMessage(`Error: Could not find language key for ${text}`);
+        }
+    } else {
+        console.log(`Text "${text}" not found in languages: ${Object.values(languages)}`);
+    }
+
     // Если пользователь ещё не выбрал язык, показываем выбор языка
-    if (!userLanguages[chatId] && text !== '/start') {
+    if (!userLanguages[chatId] && text.toLowerCase() !== '/start') {
         bot.sendMessage(chatId, getMessage(chatId, 'selectLanguage'), {
             reply_markup: {
                 keyboard: Object.keys(languages).map(lang => [languages[lang]]),
@@ -177,16 +208,8 @@ bot.on('message', (msg) => {
                 one_time_keyboard: true
             }
         });
-        return;
-    }
-
-    // Обработка выбора языка
-    if (Object.values(languages).includes(msg.text)) {
-        const selectedLang = Object.keys(languages).find(key => languages[key] === msg.text);
-        userLanguages[chatId] = selectedLang;
-        bot.sendMessage(chatId, getMessage(chatId, 'languageChanged', { language: languages[selectedLang] }));
-        startHandler(bot, chatId, getMessage);
-        logMessage(`User ${chatId} changed language to ${selectedLang}`);
+        logMessage(`Bot to ${chatId}: Asked to select language`);
+        console.log(`Bot to ${chatId}: Asked to select language`);
         return;
     }
 
@@ -196,7 +219,7 @@ bot.on('message', (msg) => {
     }
 
     // Обработка команд из главного меню
-    if (text === '/start' || text === getMessage(chatId, 'backToMainMenu').toLowerCase()) {
+    if (text.toLowerCase() === '/start' || text.toLowerCase() === getMessage(chatId, 'backToMainMenu').toLowerCase()) {
         userState[chatId].step = 'idle';
         if (!userLanguages[chatId]) {
             bot.sendMessage(chatId, getMessage(chatId, 'selectLanguage'), {
@@ -206,27 +229,34 @@ bot.on('message', (msg) => {
                     one_time_keyboard: true
                 }
             });
+            logMessage(`Bot to ${chatId}: Asked to select language`);
+            console.log(`Bot to ${chatId}: Asked to select language`);
         } else {
             startHandler(bot, chatId, getMessage);
+            logMessage(`Bot replied to ${chatId}: Sent start message`);
+            console.log(`Bot replied to ${chatId}: Sent start message`);
         }
-        logMessage(`Bot replied to ${chatId}: Sent start message`);
-    } else if (text === 'записаться' || text === getMessage(chatId, 'addAnotherBooking').toLowerCase()) {
+    } else if (text.toLowerCase() === 'записаться' || text.toLowerCase() === getMessage(chatId, 'addAnotherBooking').toLowerCase()) {
         userState[chatId].step = 'selecting_service';
         bookHandler(bot, chatId, userPreferences, userState, bookings, getMessage, userLanguages);
         logMessage(`Bot replied to ${chatId}: Started booking process`);
-    } else if (text === 'прайс') {
+        console.log(`Bot replied to ${chatId}: Started booking process`);
+    } else if (text.toLowerCase() === 'прайс') {
         userState[chatId].step = 'idle';
         priceHandler(bot, chatId, getMessage, userLanguages);
         logMessage(`Bot replied to ${chatId}: Sent price list`);
-    } else if (text === 'о салоне') {
+        console.log(`Bot replied to ${chatId}: Sent price list`);
+    } else if (text.toLowerCase() === 'о салоне') {
         userState[chatId].step = 'idle';
         aboutHandler(bot, chatId, getMessage);
         logMessage(`Bot replied to ${chatId}: Sent about info`);
-    } else if (text === 'акции') {
+        console.log(`Bot replied to ${chatId}: Sent about info`);
+    } else if (text.toLowerCase() === 'акции') {
         userState[chatId].step = 'idle';
         promoHandler(bot, chatId, getMessage, userLanguages);
         logMessage(`Bot replied to ${chatId}: Sent promo info`);
-    } else if (text === getMessage(chatId, 'checkMyBookings').toLowerCase()) {
+        console.log(`Bot replied to ${chatId}: Sent promo info`);
+    } else if (text.toLowerCase() === getMessage(chatId, 'checkMyBookings').toLowerCase()) {
         userState[chatId].step = 'idle';
         const userBookings = bookings[chatId] || [];
         const bookingList = userBookings.length > 0
@@ -247,10 +277,14 @@ bot.on('message', (msg) => {
             }
         });
         logMessage(`Bot replied to ${chatId}: Sent booking list`);
-    } else if (text === getMessage(chatId, 'cancelBooking').toLowerCase()) {
+        console.log(`Bot replied to ${chatId}: Sent booking list`);
+    }
+    else if (text.toLowerCase() === getMessage(chatId, 'cancelBooking').toLowerCase()) {
         const userBookings = bookings[chatId] || [];
         if (userBookings.length === 0) {
             bot.sendMessage(chatId, getMessage(chatId, 'checkBookings', { bookings: 'У вас нет активных записей.' }));
+            logMessage(`Bot to ${chatId}: No bookings to cancel`);
+            console.log(`Bot to ${chatId}: No bookings to cancel`);
             return;
         }
         userState[chatId].step = 'cancelling';
@@ -263,6 +297,7 @@ bot.on('message', (msg) => {
             }
         });
         logMessage(`Bot to ${chatId}: Asked to select booking to cancel`);
+        console.log(`Bot to ${chatId}: Asked to select booking to cancel`);
 
         bot.once('message', (msg) => {
             const index = parseInt(msg.text) - 1;
@@ -271,20 +306,25 @@ bot.on('message', (msg) => {
                 const cancelledBooking = userBookings.splice(index, 1)[0];
                 bot.sendMessage(chatId, `Запись "${cancelledBooking.service}, ${cancelledBooking.time}" отменена.`);
                 logMessage(`User ${chatId} cancelled booking: ${cancelledBooking.service}, ${cancelledBooking.time}`);
+                console.log(`User ${chatId} cancelled booking: ${cancelledBooking.service}, ${cancelledBooking.time}`);
             } else {
                 bot.sendMessage(chatId, getMessage(chatId, 'unknownCommand'));
+                logMessage(`Bot to ${chatId}: Invalid booking selection for cancellation`);
+                console.log(`Bot to ${chatId}: Invalid booking selection for cancellation`);
             }
             userState[chatId].step = 'idle';
             startHandler(bot, chatId, getMessage);
         });
-    } else if (text === getMessage(chatId, 'contactOwner').toLowerCase()) {
+    } else if (text.toLowerCase() === getMessage(chatId, 'contactOwner').toLowerCase()) {
         userState[chatId].step = 'idle';
         bot.sendMessage(chatId, getMessage(chatId, 'contactInfo'));
         logMessage(`Bot to ${chatId}: Sent contact info`);
-    } else if (text === getMessage(chatId, 'leaveReview').toLowerCase()) {
+        console.log(`Bot to ${chatId}: Sent contact info`);
+    } else if (text.toLowerCase() === getMessage(chatId, 'leaveReview').toLowerCase()) {
         userState[chatId].step = 'leaving_review';
         bot.sendMessage(chatId, getMessage(chatId, 'leaveReviewPrompt'));
         logMessage(`Bot to ${chatId}: Asked for review`);
+        console.log(`Bot to ${chatId}: Asked for review`);
 
         bot.once('message', (msg) => {
             if (userState[chatId].step !== 'leaving_review') return;
@@ -292,10 +332,11 @@ bot.on('message', (msg) => {
             reviews[chatId].push(msg.text);
             bot.sendMessage(chatId, getMessage(chatId, 'reviewThanks'));
             logMessage(`User ${chatId} left review: ${msg.text}`);
+            console.log(`User ${chatId} left review: ${msg.text}`);
             userState[chatId].step = 'idle';
             startHandler(bot, chatId, getMessage);
         });
-    } else if (text === getMessage(chatId, 'changeLanguage').toLowerCase()) {
+    } else if (text.toLowerCase() === getMessage(chatId, 'changeLanguage').toLowerCase()) {
         bot.sendMessage(chatId, getMessage(chatId, 'selectLanguage'), {
             reply_markup: {
                 keyboard: Object.keys(languages).map(lang => [languages[lang]]),
@@ -303,16 +344,21 @@ bot.on('message', (msg) => {
                 one_time_keyboard: true
             }
         });
+        logMessage(`Bot to ${chatId}: Asked to change language`);
+        console.log(`Bot to ${chatId}: Asked to change language`);
     } else {
         bot.sendMessage(chatId, getMessage(chatId, 'unknownCommand'));
         logMessage(`Bot replied to ${chatId}: Unknown command, asked to select from menu`);
+        console.log(`Bot replied to ${chatId}: Unknown command, asked to select from menu`);
     }
 });
 
 // Логирование ошибок
 bot.on('polling_error', (error) => {
-    console.log('Ошибка Telegram:', error.message);
+    console.error('Ошибка Telegram:', error.message);
     logMessage(`Error: ${error.message}`);
+    // Уведомление администратору (замените adminChatId на реальный ID)
+    // bot.sendMessage(adminChatId, `Polling error: ${error.message}`);
 });
 
 console.log('Бот запущен в Telegram!');
